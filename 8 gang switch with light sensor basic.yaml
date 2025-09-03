@@ -1,0 +1,184 @@
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "shahG"
+    password: "shahg12345"
+
+captive_portal:
+
+# Enable ESPHome's built-in web server
+web_server:
+  port: 80
+
+
+# Expose text fields for Wi-Fi credentials in the web UI
+i2c:
+  sda: GPIO21
+  scl: GPIO22
+  frequency: 10000 Hz
+  scan: true
+
+sensor:
+  - platform: bh1750
+    name: "Lux Current Level"
+    id: lux_sensor
+    address: 0x23
+    update_interval: 5s
+
+# User-adjustable thresholds
+number:
+  - platform: template
+    name: "Lux Minimum"
+    id: lux_min
+    optimistic: true
+    min_value: 10
+    max_value: 500
+    step: 10
+    initial_value: 50
+    restore_value: true
+
+  - platform: template
+    name: "Lux Maximum"
+    id: lux_max
+    optimistic: true
+    min_value: 50
+    max_value: 1000
+    step: 10
+    initial_value: 300
+    restore_value: true
+    
+switch:
+  - platform: gpio
+    pin: GPIO23
+    name: Switch1
+    id: switch1
+    inverted: true
+  - platform: gpio
+    pin: GPIO13
+    name: Switch2
+    id: switch2
+    inverted: true
+  - platform: gpio
+    pin: GPIO14
+    name: Switch3
+    id: switch3
+    inverted: true
+  - platform: gpio
+    pin: GPIO27
+    name: Switch4
+    id: switch4
+    inverted: true
+  - platform: gpio
+    pin: GPIO26
+    name: Switch5
+    id: switch5
+    inverted: true
+  - platform: gpio
+    pin: GPIO25
+    name: Switch6
+    id: switch6
+    inverted: true
+  - platform: gpio
+    pin: GPIO33
+    name: Switch7
+    id: switch7
+    inverted: true
+  - platform: gpio
+    pin: GPIO32
+    name: Switch8
+    id: switch8
+    inverted: true
+  - platform: template
+    name: "Auto Switching"
+    id: auto_mode
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: ESP IP Address
+    ssid:
+      name: ESP Connected SSID
+
+text:
+  - platform: template
+    name: "WiFi Password"
+    id: y_wifi_password_text
+    mode: password     # REQUIRED ✅
+    optimistic: true
+ 
+  - platform: template
+    name: "WiFi Name (SSID)"
+    id: x_wifi_ssid_text
+    mode: text         # REQUIRED ✅
+    optimistic: true
+
+  
+
+button:
+  - platform: template
+    name: "WiFi Settings Save"
+    id: z_buttonid
+    on_press:
+      then:
+        - lambda: |-
+            esphome::wifi::WiFiAP ap;
+            ap.set_ssid(id(x_wifi_ssid_text).state);
+            ap.set_password(id(y_wifi_password_text).state);
+
+            // Apply new WiFi credentials
+            wifi::global_wifi_component->set_sta(ap);
+
+            // Persist to flash
+            wifi::global_wifi_component->save_wifi_sta(
+              id(x_wifi_ssid_text).state,
+              id(y_wifi_password_text).state
+            );
+
+            // Try connecting immediately
+            wifi::global_wifi_component->start_connecting(ap, true);
+
+  # Automation for proportional control
+interval:
+  - interval: 10s
+    then:
+      - lambda: |-
+          if (!id(auto_mode).state) {
+            // Manual mode → do nothing
+            return;
+          }
+
+          float lux = id(lux_sensor).state;
+          float min_l = id(lux_min).state;
+          float max_l = id(lux_max).state;
+
+          if (lux < 0) return;
+
+          int steps = 8;
+          int lights_on = 0;
+
+          if (lux <= min_l) {
+            lights_on = steps;
+          } else if (lux >= max_l) {
+            lights_on = 0;
+          } else {
+            float ratio = (max_l - lux) / (max_l - min_l);
+            lights_on = round(ratio * steps);
+          }
+
+          std::vector<esphome::switch_::Switch*> sw = {
+            id(switch1), id(switch2), id(switch3), id(switch4),
+            id(switch5), id(switch6), id(switch7), id(switch8)
+          };
+
+          for (int i=0; i<steps; i++) {
+            if (i < lights_on)
+              sw[i]->turn_on();
+            else
+              sw[i]->turn_off();
+          }

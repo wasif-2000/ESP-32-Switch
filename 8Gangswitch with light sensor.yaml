@@ -1,0 +1,156 @@
+esphome:
+  name: 8-gang-switch
+  friendly_name: 8-Gang-switch
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: "rLMdoILDTqYcA6Kx1ZqY0tjwpEmz9QhVwxs1LKqLbFI="
+
+ota:
+  - platform: esphome
+    password: "446046e6342d32129106a8c65d80f289"
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "shahG"
+    password: "shahg12345"
+
+captive_portal:
+web_server:
+  port: 80
+
+i2c:
+  sda: GPIO21
+  scl: GPIO22
+  frequency: 10000 Hz
+  scan: true
+
+sensor:
+  - platform: bh1750
+    name: "Room Lux"
+    id: room_lux
+    address: 0x23
+    update_interval: 5s
+
+# User-adjustable thresholds
+number:
+  - platform: template
+    name: "Lux Minimum"
+    id: lux_min
+    optimistic: true
+    min_value: 10
+    max_value: 1000
+    step: 10
+    initial_value: 250
+
+  - platform: template
+    name: "Lux Maximum"
+    id: lux_max
+    optimistic: true
+    min_value: 50
+    max_value: 2000
+    step: 10
+    initial_value: 850
+
+switch:
+  - platform: gpio
+    pin: GPIO23
+    name: Switch1
+    id: switch1
+    inverted: true
+  - platform: gpio
+    pin: GPIO13
+    name: Switch2
+    id: switch2
+    inverted: true
+  - platform: gpio
+    pin: GPIO14
+    name: Switch3
+    id: switch3
+    inverted: true
+  - platform: gpio
+    pin: GPIO27
+    name: Switch4
+    id: switch4
+    inverted: true
+  - platform: gpio
+    pin: GPIO26
+    name: Switch5
+    id: switch5
+    inverted: true
+  - platform: gpio
+    pin: GPIO25
+    name: Switch6
+    id: switch6
+    inverted: true
+  - platform: gpio
+    pin: GPIO33
+    name: Switch7
+    id: switch7
+    inverted: true
+  - platform: gpio
+    pin: GPIO32
+    name: Switch8
+    id: switch8
+    inverted: true
+  # Automation for proportional control
+interval:
+  - interval: 10s
+    then:
+      - lambda: |-
+          float lux = id(room_lux).state;
+          float min_val = id(lux_min).state;
+          float max_val = id(lux_max).state;
+
+          // Collect switch IDs into an array (no & here!)
+          auto switches = {
+            id(switch1), id(switch2), id(switch3), id(switch4),
+            id(switch5), id(switch6), id(switch7), id(switch8)
+          };
+
+          if (lux <= min_val) {
+            // All ON
+            for (auto *sw : switches) {
+              sw->turn_on();
+            }
+          } else if (lux >= max_val) {
+            // All OFF
+            for (auto *sw : switches) {
+              sw->turn_off();
+            }
+          } else {
+            // Scale lux into 0–8 lights ON
+            float step_size = (max_val - min_val) / 8.0;
+            int lights_on = 8 - int((lux - min_val) / step_size);
+
+            if (lights_on < 0) lights_on = 0;
+            if (lights_on > 8) lights_on = 8;
+
+            ESP_LOGD("lux_control", "Lux=%.1f → %d lights ON", lux, lights_on);
+
+            int idx = 0;
+            for (auto *sw : switches) {
+              if (idx < lights_on) {
+                sw->turn_on();
+              } else {
+                sw->turn_off();
+              }
+              idx++;
+            }
+          }
+
+
